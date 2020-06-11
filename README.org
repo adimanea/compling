@@ -1,0 +1,27 @@
+#+TITLE: Computational Linguistics 101
+
+* Description and Purpose
+This repository is for my learning adventure through some basic 
+Computational Linguistics. My focus is on *semantics* and I will
+do my best to avoid any Machine Learning, Neural Nets and the like.
+
+I will include here notes from books or other resources I read,
+links and bibliography for the useful resources I find in this
+journey, as well as some coding exercises to practice what
+I'm learning. In fact, it will mostly focus on the implementation
+part, as mathematical and linguistic notes are in my notebooks
+for the time being.
+
+I emphasize the self-learning component of the journey, as well
+as the fact that I have some precise academic interest in view and
+last but not least that my programming skills are below 101.
+As such, this repository will not focus on performance or on trending
+topics and will inevitably be full of beginner (read /"n00b"/ material).
+
+* Resources
+** Books
+- Sarkar, Dipanjan - /Text Analytics with Python/, 2019;
+- Desikam - /Natural Language Processing and Computational Lingustics/, 2018;
+- Vasiliev - /NLP with Python and spaCy/ 2020;
+- Lane, Hapke, Howard - /NLP in Action/, 2020;
+- Hardeniya, Perkins et. al. - /NLP: Python and NLTK/, 2016.
