@@ -1,0 +1,121 @@
+#+TITLE: Computational Linguistics Notes
+
+
+* Basic Tokenizing
+The example below creates the so-called *one-hot vectors*,
+which store in a matrix the words in a sentence, in alphabetical
+order. We will use the sentence:
+
+#+BEGIN_QUOTE
+Thomas Jefferson began building Monticello at the age of 26.
+#+END_QUOTE
+
+After sorting it alphabetically (numbers before letters, capitals
+before lower case), we get:
+#+BEGIN_QUOTE
+26. Jefferson Monticello Thomas age at began building of the
+#+END_QUOTE
+
+Then we create a 10x10 matrix to store the words. Each column of
+the matrix represents a word, so the first column is for =26=,
+the second is for =Jefferson= etc. The matrix is initially filled
+with zeros and for each column (word), we find =1= at line =j=
+if the word appears at position =j= in the /initial/ sentence
+(the unsorted version, defined using natural language).
+
+The code follows.
+#+BEGIN_SRC python :tangle code/simple_tok.py :exports code :results output
+  # FILE: simple_tok.py
+  #############################################################
+  # This file should be read and used in conjuction with the
+  # notes contained in the notes.org file in the current repo.
+  # Explanations and comments are found there. This is merely
+  # an exported standalone version to be interpreted outside
+  # the notes.
+  #############################################################
+
+  import numpy as np
+
+  sentence = """Thomas Jefferson began building Monticello
+				at the age of 26."""
+
+  token_sequence = str.split(sentence)
+  vocab = sorted(set(token_sequence))
+  ', '.join(vocab)
+  num_tokens = len(token_sequence)
+  vocab_size = len(vocab)
+  onehot_vectors = np.zeros((num_tokens, vocab_size), int)
+  for i, word in enumerate(token_sequence):
+	  onehot_vectors[i, vocab.index(word)] = 1
+  ' '.join(vocab)
+  print(onehot_vectors)
+#+END_SRC
+
+Which produces:
+
+#+RESULTS:
+#+begin_example
+[[0 0 0 1 0 0 0 0 0 0]
+ [0 1 0 0 0 0 0 0 0 0]
+ [0 0 0 0 0 0 1 0 0 0]
+ [0 0 0 0 0 0 0 1 0 0]
+ [0 0 1 0 0 0 0 0 0 0]
+ [0 0 0 0 0 1 0 0 0 0]
+ [0 0 0 0 0 0 0 0 0 1]
+ [0 0 0 0 1 0 0 0 0 0]
+ [0 0 0 0 0 0 0 0 1 0]
+ [1 0 0 0 0 0 0 0 0 0]]
+#+end_example
+
+
+A better visualisation of the information can be done either with
+=Pandas=, which lists the table headers or with =DataFrame=, which
+omits the zeros.
+
+This way, we get (notice the explicit direction to =$pwd= and the =import=
+of previous file):
+#+BEGIN_SRC python :tangle code/simple_tok_pretty.py :exports code :results output
+  import sys
+  sys.path.append('~/repos/0-mine/compling/code/')
+
+  import simple_tok as st
+  import pandas as pd
+
+  print("Pandas print:")
+  print(pd.DataFrame(st.onehot_vectors, columns=st.vocab))
+
+  df = pd.DataFrame(st.onehot_vectors, columns=st.vocab)
+  df[df == 0] = ''                # ignore zeros
+  print("Prettier, no zeros:")
+  print(df)
+#+END_SRC
+
+Which produces:
+
+#+RESULTS:
+#+begin_example
+Pandas print:
+   26.  Jefferson  Monticello  Thomas  age  at  began  building  of  the
+0    0          0           0       1    0   0      0         0   0    0
+1    0          1           0       0    0   0      0         0   0    0
+2    0          0           0       0    0   0      1         0   0    0
+3    0          0           0       0    0   0      0         1   0    0
+4    0          0           1       0    0   0      0         0   0    0
+5    0          0           0       0    0   1      0         0   0    0
+6    0          0           0       0    0   0      0         0   0    1
+7    0          0           0       0    1   0      0         0   0    0
+8    0          0           0       0    0   0      0         0   1    0
+9    1          0           0       0    0   0      0         0   0    0
+Prettier, no zeros:
+  26. Jefferson Monticello Thomas age at began building of the
+0                               1                             
+1             1                                               
+2                                            1                
+3                                                     1       
+4                        1                                    
+5                                      1                      
+6                                                            1
+7                                   1                         
+8                                                        1    
+9   1        
+#+end_example
