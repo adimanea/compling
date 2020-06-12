@@ -16,7 +16,11 @@ I emphasize the self-learning component of the journey, as well
 as the fact that I have some precise academic interest in view and
 last but not least that my programming skills are below 101.
 As such, this repository will not focus on performance or on trending
-topics and will inevitably be full of beginner (read /"n00b"/ material).
+topics and will inevitably be full of beginner (read /n00b/ material).
+
+*Remark:* All included texts for experimentation purposes, found in the
+=texts= folder here are public domain, free of copyright, downloaded
+from Project Gutenberg.
 
 * Resources
 ** Books
