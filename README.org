@@ -22,6 +22,8 @@ topics and will inevitably be full of beginner (read /n00b/ material).
 =texts= folder here are public domain, free of copyright, downloaded
 from Project Gutenberg.
 
+The notes I'm taking are [[file:notes.org][here]].
+
 * Resources
 ** Books
 - Sarkar, Dipanjan - /Text Analytics with Python/, 2019;
