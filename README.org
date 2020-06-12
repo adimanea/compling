@@ -29,3 +29,6 @@ from Project Gutenberg.
 - Vasiliev - /NLP with Python and spaCy/ 2020;
 - Lane, Hapke, Howard - /NLP in Action/, 2020;
 - Hardeniya, Perkins et. al. - /NLP: Python and NLTK/, 2016.
+
+** Web Articles and Links
+- [[http://norvig.com/spell-correct.html][Norvig's Spell Corrector]];
