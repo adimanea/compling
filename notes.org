@@ -118,7 +118,7 @@ Prettier, no zeros:
 9   1        
 #+end_example
 
-** Dot Product Calculation
+* Dot Product Calculation
 We will use the dot product in many situations for computing
 similarity. A basic example, using =Pandas= and =numpy= is
 the following:
@@ -135,10 +135,240 @@ the following:
   print(sum([x1 * x2 for x1, x2 in zip(v1, v2)]))
 #+END_SRC
 
+which outputs:
+
 #+RESULTS:
 : The dot product of the two vectors is:
 : 20
 : Manual computation of the dot product:
 : 20
 
-which outputs:
+* Better Tokenizing
+Some of the most commonly used methods involve:
+- =re= or =regex= (newer) packages for Regular Expression support;
+- Stanford CoreNLP: accurate, less flexible, depends on Java;
+- NLTK: standard;
+- spaCy: newcomer.
+
+Simple examples follow.
+
+RegEx:
+#+BEGIN_SRC python :tangle code/re_tok.py :exports both :results output
+  import re
+
+  sentence = """Thomas Jefferson began building Monticello at the\
+  age of 26."""
+
+  # regex to split at whitespace or punctuation
+  # that appears at least once
+  tokens = re.split(r'[-\s.,;!?]+', sentence)
+
+  print(tokens)
+#+END_SRC
+
+which produces:
+
+#+RESULTS:
+: ['Thomas', 'Jefferson', 'began', 'building', 'Monticello', 'at', 'theage', 'of', '26', '']
+
+Precompiled RegEx passed to pattern matching:
+#+BEGIN_SRC python :tangle code/pattern_tok.py :exports both :results output
+  import re
+
+  sentence = """Thomas Jefferson began building the Monticello at the\
+  age of 26."""
+
+  # prepare the regex beforehand
+  pattern = re.compile(r"([-\s.,;~?])+")
+
+  # apply the regex
+  tokens = pattern.split(sentence)
+
+  # filter out whitespace and punctuation
+  good_toks = [x for x in tokens if x and x not in '- \t\n.,;~?']
+
+  print(good_toks)
+#+END_SRC
+
+which produces:
+
+#+RESULTS:
+: ['Thomas', 'Jefferson', 'began', 'building', 'the', 'Monticello', 'at', 'theage', 'of', '26']
+
+Using NLTK's =RegexpTokenizer=:
+#+BEGIN_SRC python :tangle code/nltk_regexp_tok.py :exports both :results output
+  from nltk.tokenize import RegexpTokenizer
+
+  sentence = """Thomas Jefferson began building the Monticello at the
+  age of 26."""
+
+  tokenizer = RegexpTokenizer(r'\w+|$[0-9.]+|\S+')
+
+  print(tokenizer.tokenize(sentence))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+: ['Thomas', 'Jefferson', 'began', 'building', 'the', 'Monticello', 'at', 'the', 'age', 'of', '26', '.']
+
+Using NLTK's [[http://www.nltk.org/api/nltk.tokenize.html#module-nltk.tokenize.treebank][=Penn Treebank Tokenizer=]]:
+#+BEGIN_SRC python :tangle code/nltk_treebank_tok.py :exports both :results output
+  from nltk.tokenize import TreebankWordTokenizer
+
+  sentence = """Monticello wasn't designed as UNESCO World Heritage\
+  Site until 1987."""
+
+  tokenizer = TreebankWordTokenizer()
+  print(tokenizer.tokenize(sentence))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+: ['Monticello', 'was', "n't", 'designed', 'as', 'UNESCO', 'World', 'HeritageSite', 'until', '1987', '.']
+
+* N-grams
+In some cases, it could be relevant for the meaning of a text
+to keep N-grams. For example, if the text contains "ice cream",
+it is best interpreted if the two words are /not/ separated. For
+such purposes, we use N-grams (2-grams in the case of "ice cream").
+
+Example using NLTK's =ngrams= tokenizer:
+#+BEGIN_SRC python :tangle code/nltk_ngrams.py :exports both :results output
+  import re
+  from nltk.util import ngrams
+
+  sentence = """Thomas Jefferson began building Monticello at the
+  age of 26."""
+
+  # get the tokens (words) first with a simple split
+  pattern = re.compile(r"([-\s.,;~?])+")
+  tokens = pattern.split(sentence)
+  # disregard whitespace and punctuation
+  tokens = [x for x in tokens if x and x not in '- \t\n.,;~?']
+
+  # N-grams with NLTK
+  print("2- and 3-grams as tuples:")
+  print(list(ngrams(tokens, 2)))
+  print(list(ngrams(tokens, 3)))
+
+  print("2-grams joined with whitespace:")
+  two_grams = list(ngrams(tokens, 2))
+  print([" ".join(x) for x in two_grams])
+#+END_SRC
+
+This gives:
+#+RESULTS:
+: 2- and 3-grams as tuples:
+: [('Thomas', 'Jefferson'), ('Jefferson', 'began'), ('began', 'building'), ('building', 'Monticello'), ('Monticello', 'at'), ('at', 'the'), ('the', 'age'), ('age', 'of'), ('of', '26')]
+: [('Thomas', 'Jefferson', 'began'), ('Jefferson', 'began', 'building'), ('began', 'building', 'Monticello'), ('building', 'Monticello', 'at'), ('Monticello', 'at', 'the'), ('at', 'the', 'age'), ('the', 'age', 'of'), ('age', 'of', '26')]
+: 2-grams joined with whitespace:
+: ['Thomas Jefferson', 'Jefferson began', 'began building', 'building Monticello', 'Monticello at', 'at the', 'the age', 'age of', 'of 26']
+
+* Stopwords
+NLTK contains a list of stopwords which one can readily download,
+use and query:
+#+BEGIN_SRC python :tangle code/nltk_stopwords.py :exports both :results output
+  import nltk
+
+  nltk.download('stopwords')
+  stop_words = nltk.corpus.stopwords.words('english')
+  print("There are " + str(len(stop_words)) + " stopwords in NLTK English DB")
+
+  print("Some of them are:")
+  print(stop_words[:10])
+
+  print("The shortest are:")
+  print([sw for sw in stop_words if len(sw) == 1])
+#+END_SRC
+
+Which gives:
+#+RESULTS:
+: There are 179 stopwords in NLTK English DB
+: Some of them are:
+: ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're"]
+: The shortest are:
+: ['i', 'a', 's', 't', 'd', 'm', 'o', 'y']
+
+* Normalizing the Vocabulary
+*Case folding* is simply done with =.lower()=.
+
+*Stemming* can be done manually for disregarding plural =s='s:
+#+BEGIN_SRC python :tangle code/stemmer_plurals.py :exports both :results output
+  import re
+
+  def stem(phrase):
+	  return ' '.join([re.findall('^(.*ss|.*?)(s)?$', word)[0][0].strip("'")
+			   for word in phrase.lower().split()])
+
+  print("Stemming plurals for 'houses' gives: ", end="")
+  print(stem('houses'))
+  print("Stemming plurals from 'Doctor House's Calls' gives: ", end="")
+  print(stem("Doctor House's calls"))
+#+END_SRC
+
+This gives:
+#+RESULTS:
+: Stemming plurals for 'houses' gives: house
+: Stemming plurals from 'Doctor House's Calls' gives: doctor house call
+
+NLTK's =PorterStemmer= works like this:
+#+BEGIN_SRC python :tangle code/stemmer_nltk_porter.py :exports both :results output
+  from nltk.stem.porter import PorterStemmer
+
+  stemmer = PorterStemmer()
+  print("Porter Stemmer for 'Dish washer's washed dishes' gives:")
+  print(' '.join([stemmer.stem(w).strip("'") for w in
+				  "Dish washer's washed dishes".split()]))
+#+END_SRC
+
+#+RESULTS:
+: Porter Stemmer for 'Dish washer's washed dishes' gives:
+: dish washer wash dish
+
+The Porter Stemmer has been ported to pure Python [[https://github.com/jedijulia/porter-stemmer][here]]. The basic steps
+are the following:
+- *Step 1a*: remove "s" and "es" endings;
+- *Step 1b*: remove "ed", "ing" and "at" endings;
+- *Step 1c*: remove "y" endings;
+- *Step 2*: /nounifying/ endings such as "(a)tional", "ence", "able";
+- *Step 3*: adjective endings such as "icate", "ful", "alize";
+- *Step 4*: adjectives and nound endings such as "ive", "ible", "ent", "ism";
+- *Step 5a*: some "e" endings still left around;
+- *Step 5b*: trailing double consonants for which the stem should end in one consonant.
+
+*Lemmatization* is done readily with NLTK:
+#+BEGIN_SRC python :tangle code/lemmatizer_nltk.py :exports both :results output
+  import nltk
+  nltk.download('wordnet')
+  from nltk.stem import WordNetLemmatizer
+
+  lemmatizer = WordNetLemmatizer()
+  adjectives = ["better", "good", "goods", "best"]
+  nouns = ["better", "goods", "goodness"]
+
+  print("> We lemmatize the following adjectives:")
+  for adj in adjectives:
+	  print(adj, end=" ")
+  print("\n> And get respectively:")
+  for adj in adjectives:
+	  print(lemmatizer.lemmatize(adj, pos="a"), end=" ")
+
+  print("\n> Now the following nouns:")
+  for n in nouns:
+	  print(n, end=" ")
+  print("\n> And get respectively:")
+  for n in nouns:
+	  print(lemmatizer.lemmatize(n, pos="n"), end=" ")
+#+END_SRC
+
+#+RESULTS:
+: > We lemmatize the following adjectives:
+: better good goods best 
+: > And get respectively:
+: good good goods best 
+: > Now the following nouns:
+: better goods goodness 
+: > And get respectively:
+: better good goodness 
