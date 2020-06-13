@@ -34,3 +34,6 @@ The notes I'm taking are [[file:notes.org][here]].
 
 ** Web Articles and Links
 - [[http://norvig.com/spell-correct.html][Norvig's Spell Corrector]];
+- [[https://scikit-learn.org/stable/tutorial/index.html][SciKit tutorial]];
+- [[https://pandas.pydata.org/docs/getting_started/intro_tutorials/][Pandas tutorial]];
+- [[https://github.com/jedijulia/porter-stemmer][Porter Stemmer]] @ GitHub
