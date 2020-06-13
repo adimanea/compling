@@ -363,6 +363,7 @@ are the following:
 	  print(lemmatizer.lemmatize(n, pos="n"), end=" ")
 #+END_SRC
 
+This gives:
 #+RESULTS:
 : > We lemmatize the following adjectives:
 : better good goods best 
@@ -372,3 +373,262 @@ are the following:
 : better goods goodness 
 : > And get respectively:
 : better good goodness 
+
+* TF-IDF Vectors
+** Bag of Words and Cleanup
+First, we create a bag of words from a sentence. But we also must
+cleanup repeated words. And for this purpose, we will store them
+in a dictionary, that has the count aside each word.
+#+BEGIN_SRC python :tangle code/bagofwords_count.py :exports both :results output
+  from nltk.tokenize import TreebankWordTokenizer
+  from collections import Counter
+
+  sentence = """The faster Harry got to the store, the faster
+  Harry, the faster, would get home."""
+
+  tokenizer = TreebankWordTokenizer()
+  tokens = tokenizer.tokenize(sentence.lower())
+  print("Individual tokens (words):")
+  for tok in tokens:
+	  print(tok, end=" ")
+
+  bag_of_words = Counter(tokens)
+  print("\nCleaned up now, with counts as a Counter:")
+  print(bag_of_words)
+
+  # collections.Counter objects have a bult-in method
+  # which prints the most common occurrences
+  print("The 3 most common words are:")
+  print(bag_of_words.most_common(3))
+#+END_SRC
+
+This gives:
+#+RESULTS:
+: Individual tokens (words):
+: the faster harry got to the store , the faster harry , the faster , would get home . 
+: Cleaned up now, with counts as a Counter:
+: Counter({'the': 4, 'faster': 3, ',': 3, 'harry': 2, 'got': 1, 'to': 1, 'store': 1, 'would': 1, 'get': 1, 'home': 1, '.': 1})
+: The 3 most common words are:
+: [('the', 4), ('faster', 3), (',', 3)]
+
+** Term Frequency (TF)
+One can easily compute the frequency of "harry" in the previous example:
+#+BEGIN_SRC python :tangle code/tf_from_Counter.py :exports both :results output
+  import sys
+  sys.path.append("./code")
+
+  import bagofwords_count as bow
+
+  times_harry_appears = bow.bag_of_words['harry']
+  num_unique_words = len(bow.bag_of_words)
+  tf = times_harry_appears / num_unique_words
+  tf_harry = round(tf, 4)
+  print("TF for 'harry' is " + str(tf_harry))
+#+END_SRC
+
+This gives:
+#+RESULTS:
+: Individual tokens (words):
+: the faster harry got to the store , the faster harry , the faster , would get home . 
+: Cleaned up now, with counts as a Counter:
+: Counter({'the': 4, 'faster': 3, ',': 3, 'harry': 2, 'got': 1, 'to': 1, 'store': 1, 'would': 1, 'get': 1, 'home': 1, '.': 1})
+: The 3 most common words are:
+: [('the', 4), ('faster', 3), (',', 3)]
+: TF for 'harry' is 0.1818
+
+** Example: Kite Text
+The example below downloads the Wikipedia article on kites and
+performs basic analysis on it.
+
+#+BEGIN_SRC python :tangle code/tf_example_kite.py :exports both :results output
+  from collections import Counter
+
+  from nltk.tokenize import TreebankWordTokenizer
+  tokenizer = TreebankWordTokenizer()
+
+  from nlpia.data.loaders import kite_text
+
+  tokens = tokenizer.tokenize(kite_text.lower())
+  token_counts = Counter(tokens)
+
+  import nltk
+  nltk.download('stopwords', quiet=True)
+  stopwords = nltk.corpus.stopwords.words('english')
+
+  tokens = [x for x in tokens if x not in stopwords]
+  # word counts from the article, that are NOT stopwords
+  kite_counts = Counter(tokens)
+
+  document_vector = []
+  doc_length = len(tokens)
+  # frequency of each word = apparition count / doc length
+  for key, value in kite_counts.most_common():
+	  document_vector.append(value / doc_length)
+
+  print("The first 5 frequencies are:")
+  print(document_vector[:5])
+#+END_SRC
+
+This gives:
+#+RESULTS:
+: The first 5 frequencies are:
+: [0.07207207207207207, 0.06756756756756757, 0.036036036036036036, 0.02252252252252252, 0.018018018018018018]
+
+** Cosine for Similarity
+The listing below is computing the similarity cosine for *document vectors*,
+as in the example above, so it assumes it is using /dictionaries/, which
+are first converted to lists to ignore the words and keep just the frequencies:
+#+BEGIN_SRC python :tangle code/cosine.py :exports both :results output
+  import math
+
+  def cosine_sim(vec1, vec2):
+	  """Let's convert the dictionaries to lists for easier matching."""
+	  vec1 = [val for val in vec1.values()]
+	  vec2 = [val for val in vec2.values()]
+
+	  dot_prod = 0
+	  for i, v in enumerate(vec1):
+		  dot_prod += v * vec2[i]
+
+	  mag1 = math.sqrt(sum([x**2 for x in vec1]))
+	  mag2 = math.sqrt(sum([x**2 for x in vec2]))
+
+	  return dot_prod / (mag1 * mag2)
+#+END_SRC
+
+The numpy alternative for cosine is:
+#+BEGIN_SRC python
+  a.dot(b) == np.linalg.norm(a) * np.linalg.norm(b) / np.cos(theta)
+
+  # so to get the cosine, we do
+  cosine_similarity = a.dot(b) / (np.linalg(norm(a)) * np.linalg.norm(b))
+#+END_SRC
+
+** Example: IDF
+#+BEGIN_SRC python :tangle code/idf_example.py :exports both :results output
+  from collections import OrderedDict, Counter
+  from nltk.tokenize import TreebankWordTokenizer
+  tokenizer = TreebankWordTokenizer()
+
+  from nlpia.data.loaders import kite_text, kite_history
+
+  kite_intro = kite_text.lower()
+  intro_tokens = tokenizer.tokenize(kite_intro)
+  kite_history = kite_history.lower()
+  history_tokens = tokenizer.tokenize(kite_history)
+
+  intro_total = len(intro_tokens)
+  print("The kite text contains " + str(intro_total) + " tokens")
+  history_total = len(history_tokens)
+  print("The kite history contains " + str(history_total) + " tokens")
+
+  intro_tf = {}
+  history_tf = {}
+  intro_counts = Counter(intro_tokens)
+  intro_tf['kite'] = intro_counts['kite'] / intro_total
+  history_counts = Counter(history_tokens)
+  history_tf['kite'] = history_counts['kite'] / history_total
+  print("Term frequency of 'kite' in intro is " + str(round(intro_tf['kite'], 4)))
+  print("Term frequency of 'kite' in history is " + str(round(history_tf['kite'], 4)))
+
+  # maybe the counts are not that relevant compared to 'and'
+  intro_tf['and'] = intro_counts['and'] / intro_total
+  history_tf['and'] = history_counts['and'] / history_total
+  print("Term frequency of 'and' in intro is " + str(round(intro_tf['and'], 4)))
+  print("Term frequency of 'and' in history is " + str(round(history_tf['and'], 4)))
+
+  # let's use rarity for IDF
+  num_docs_containing_and = 0
+  for doc in [intro_tokens, history_tokens]:
+	  if 'and' in doc:
+		  num_docs_containing_and += 1
+
+  num_docs_containing_kite = 0
+  for doc in [intro_tokens, history_tokens]:
+	  if 'kite' in doc:
+		  num_docs_containing_kite += 1
+
+  num_docs_containing_china = 0
+  for doc in [intro_tokens, history_tokens]:
+	  if 'china' in doc:
+		  num_docs_containing_china += 1
+
+  # TF of "China"
+  intro_tf['china'] = intro_counts['china'] / intro_total
+  history_tf['china'] = history_counts['china'] / history_total
+
+  # IDF
+  num_docs = 2
+  intro_idf = {}
+  history_idf = {}
+
+  intro_idf['and'] = num_docs / num_docs_containing_and
+  intro_idf['kite'] = num_docs / num_docs_containing_kite
+  intro_idf['china'] = num_docs / num_docs_containing_china
+
+  history_idf['and'] = num_docs / num_docs_containing_and
+  history_idf['kite'] = num_docs / num_docs_containing_kite
+  history_idf['china'] = num_docs / num_docs_containing_china
+
+  # TF-IDF
+  intro_tfidf = {}
+  intro_tfidf['and'] = intro_tf['and'] * intro_idf['and']
+  intro_tfidf['kite'] = intro_tf['kite'] * intro_idf['kite']
+  intro_tfidf['china'] = intro_tf['china'] * intro_idf['china']
+
+  history_tfidf = {}
+  history_tfidf['and'] = history_tf['and'] * history_idf['and']
+  history_tfidf['kite'] = history_tf['kite'] * history_idf['kite']
+  history_tfidf['china'] = history_tf['china'] * history_idf['china']
+
+  # example prints
+  print("TF-IDF for 'kite' in intro text is " + str(round(intro_tfidf['kite'], 4)))
+  print("TF-IDF for 'kite' in history text is " + str(round(history_tfidf['kite'], 4)))
+#+END_SRC
+
+#+RESULTS:
+: The kite text contains 363 tokens
+: The kite history contains 297 tokens
+: Term frequency of 'kite' in intro is 0.0441
+: Term frequency of 'kite' in history is 0.0202
+: Term frequency of 'and' in intro is 0.0275
+: Term frequency of 'and' in history is 0.0303
+: TF-IDF for 'kite' in intro text is 0.0441
+: TF-IDF for 'kite' in history text is 0.0202
+
+** Example: Automated TF-IDF with =sklearn=
+
+Tutorials on =scikit-learn= [[https://scikit-learn.org/stable/tutorial/index.html][here]].
+#+BEGIN_SRC python :tangle code/tfidf_sklearn.py :exports both :results output
+  from sklearn.feature_extraction.text import TfidfVectorizer
+  from nlpia.data.loaders import kite_text
+
+  # case fold the text, but store it as a "text object"
+  # to be fed later (string not accepted)
+  corpus = [kite_text.lower()]
+
+  vectorizer = TfidfVectorizer(min_df=1)
+  model = vectorizer.fit_transform(corpus)
+  # convert the sparse matrix to a dense numpy-like version
+  print(model.todense().round(2))
+#+END_SRC
+
+This gives:
+
+#+RESULTS:
+#+begin_example
+[[0.02 0.02 0.02 0.02 0.09 0.02 0.07 0.02 0.07 0.23 0.02 0.02 0.07 0.02
+  0.02 0.12 0.07 0.02 0.02 0.02 0.12 0.02 0.02 0.02 0.02 0.05 0.02 0.05
+  0.05 0.07 0.02 0.02 0.02 0.05 0.02 0.02 0.05 0.02 0.05 0.02 0.02 0.07
+  0.05 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.07 0.02 0.02 0.05 0.05 0.02
+  0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.09 0.02 0.02 0.02 0.02 0.02 0.16
+  0.02 0.02 0.16 0.02 0.4  0.19 0.09 0.02 0.02 0.02 0.02 0.09 0.05 0.02
+  0.05 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.09 0.02 0.02 0.05 0.02 0.02
+  0.02 0.02 0.23 0.05 0.02 0.02 0.14 0.02 0.02 0.02 0.02 0.02 0.05 0.05
+  0.02 0.05 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.02 0.02
+  0.07 0.02 0.02 0.02 0.02 0.02 0.02 0.05 0.02 0.02 0.02 0.02 0.05 0.02
+  0.05 0.05 0.05 0.05 0.05 0.6  0.02 0.12 0.02 0.02 0.02 0.02 0.02 0.02
+  0.05 0.02 0.02 0.02 0.02 0.02 0.02 0.05 0.05 0.07 0.12 0.05 0.05 0.02]]
+#+end_example
+
+* Semantics
