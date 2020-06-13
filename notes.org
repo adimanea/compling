@@ -122,7 +122,7 @@ Prettier, no zeros:
 We will use the dot product in many situations for computing
 similarity. A basic example, using =Pandas= and =numpy= is
 the following:
-#+BEGIN_SRC python :tangle code/dot_product.py :exports code :results output :wrap example
+#+BEGIN_SRC python :tangle code/dot_product.py :exports both :results output
   import pandas as pd
   import numpy as np
 
@@ -135,12 +135,10 @@ the following:
   print(sum([x1 * x2 for x1, x2 in zip(v1, v2)]))
 #+END_SRC
 
-which outputs:
-
 #+RESULTS:
-#+BEGIN_example
-The dot product of the two vectors is:
-20
-Manual computation of the dot product:
-20
-#+END_example
+: The dot product of the two vectors is:
+: 20
+: Manual computation of the dot product:
+: 20
+
+which outputs:
