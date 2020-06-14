@@ -632,3 +632,672 @@ This gives:
 #+end_example
 
 * Semantics
+We will be extracting meaning from some modified TF-IDF vectors,
+called generally *topic vectors*.
+
+Special cases of meaning that will be of concern are:
+- *polysemy*: words and phrases with more than one meaning;
+- *homonyms*: words with the same spelling and pronounciation,
+  but different meanings;
+- *zeugma*: use of two meanings of a word simultaneously in
+  the same sentence;
+- *homographs*: words spelled the same, but with different pronounciations
+  and meanings;
+- *homophones*: words with the same pronounciation, but different
+  spelling and meanings.
+
+** Simplified LDA Classifier
+For our purposes, we will use a simple classifier modelled after the
+*Linear Discriminant Analysis*, which has the following steps:
+1. Compute the average position (*centroid*) of all the TF-IDF vectors
+   for the "bad" cases (e.g. spam messages);
+2. Compute the centroid for "good" cases (e.g. non-spam messages);
+3. Compute the vector difference between the two centroids, i.e.
+   the line that connects them.
+
+*** Example: SMS Spam
+#+BEGIN_SRC python :tangle code/lda_sms_example.py :exports both :results output
+  import pandas as pd
+  from nlpia.data.loaders import get_data
+  pd.options.display.width = 120
+
+  sms = get_data('sms-spam')                      # corpus
+
+  index = ['sms{}{}'.format(i, '!'*j) for (i, j) in\
+		   zip(range(len(sms)), sms.spam)]
+  sms = pd.DataFrame(sms.values, columns=sms.columns, index=index)
+  sms['spam'] = sms.spam.astype(int)
+  print("You've got " + str(len(sms)) + " messages in total")
+  print("Of which " + str(sms.spam.sum()) + " are spam")
+  print("Here is an example listing:")
+  print(sms.head(6))
+
+  # tokenization and TF-IDF for the SMSs
+  from sklearn.feature_extraction.text import TfidfVectorizer
+  from nltk.tokenize.casual import casual_tokenize
+  tfidf_mode = TfidfVectorizer(tokenizer=casual_tokenize)
+  tfidf_docs = tfidf_mode.fit_transform(raw_documents=sms.text).toarray()
+  print("--------------------------------------------------")
+  print("The tokenizer gives the following (texts, tokens) numbers: " + \
+		str(tfidf_docs.shape))
+
+  mask = sms.spam.astype(bool).values     # select only the spam items
+  spam_centroid = tfidf_docs[mask].mean(axis=0)
+  ham_centroid = tfidf_docs[~mask].mean(axis=0)
+
+  print("--------------------------------------------------")
+  print("Here is a part of the centroid for SPAM messages:")
+  print(spam_centroid[:5].round(2))
+  print("Here is a part of the centroid for HAM messages:")
+  print(ham_centroid[:5].round(2))
+
+  # subtract one centroid from the other to get the line between them
+  spamminess_score = tfidf_docs.dot(spam_centroid - ham_centroid)
+  print("--------------------------------------------------")
+  print("A part of the line between the centroids is:")
+  print(spamminess_score[:5].round(2))
+
+  # assign scores (like probabilities)
+  from sklearn.preprocessing import MinMaxScaler
+  sms['lda_score'] = MinMaxScaler().fit_transform(spamminess_score.reshape(-1,1))
+  sms['lda_predict'] = (sms.lda_score > .5).astype(int)
+
+  print("--------------------------------------------------")
+  print("Some listings:")
+  print(sms['spam lda_predict lda_score'.split()].round(2).head(6))
+
+  # false positives and false negatives
+  from pugnlp.stats import Confusion
+  print("--------------------------------------------------")
+  print("False positives and false negatives:")
+  print(Confusion(sms['spam lda_predict'.split()]))
+#+END_SRC
+
+Output:
+
+#+RESULTS:
+#+begin_example
+You've got 4837 messages in total
+Of which 638 are spam
+Here is an example listing:
+       spam                                               text
+sms0      0  Go until jurong point, crazy.. Available only ...
+sms1      0                      Ok lar... Joking wif u oni...
+sms2!     1  Free entry in 2 a wkly comp to win FA Cup fina...
+sms3      0  U dun say so early hor... U c already then say...
+sms4      0  Nah I don't think he goes to usf, he lives aro...
+sms5!     1  FreeMsg Hey there darling it's been 3 week's n...
+--------------------------------------------------
+The tokenizer gives the following (texts, tokens) numbers: (4837, 9232)
+--------------------------------------------------
+Here is a part of the centroid for SPAM messages:
+[0.06 0.   0.   0.   0.  ]
+Here is a part of the centroid for HAM messages:
+[0.02 0.01 0.   0.   0.  ]
+--------------------------------------------------
+A part of the line between the centroids is:
+[-0.01 -0.02  0.04 -0.02 -0.01]
+--------------------------------------------------
+Some listings:
+       spam  lda_predict  lda_score
+sms0      0            0       0.23
+sms1      0            0       0.18
+sms2!     1            1       0.72
+sms3      0            0       0.18
+sms4      0            0       0.29
+sms5!     1            1       0.55
+--------------------------------------------------
+False positives and false negatives:
+lda_predict     0    1
+spam                  
+0            4135   64
+1              45  593
+#+end_example
+** Latent Semantic Analysis
+LSA is based on *Singular Value Decomposition* (SVD) for matrices,
+which decomposes any given matrix into 3 square matrices, one of
+which is diagonal. The main idea is that LSA can break the TF-IDF
+term-document matrix into 3 simpler matrices, using SVD. Moreover,
+analyzing the 3 factors that SVD produces, one can apply certain 
+transformations to them that will in turn simplify the TF-IDF matrix
+when multiplied back together.
+
+The Wikipedia page for SVD is [[https://en.wikipedia.org/wiki/Singular_value_decomposition][here]].
+
+*** SVD and Topics
+#+BEGIN_SRC python :tangle code/svd_topics_example.py :exports both :results output
+  from nlpia.book.examples.ch04_catdog_lsa_sorted import lsa_models, prettify_tdm
+
+  bow_svd, tfidf_svd = lsa_models()
+  # the sparse, pretty print
+  print(prettify_tdm(**bow_svd))
+  # **arg unpacks a dictionary argument and feeds
+  # each key-value pair as an argument to the function called
+
+  tdm = bow_svd['tdm']
+  # the term-document matrix print
+  print(tdm)
+#+END_SRC
+
+The example above imports 11 texts and makes a document-term matrix which
+focuses on 6 words (cat, dog, apple, lion, nyc, love). After first printing
+it in pretty form, we output the term-document matrix form that will be used
+afterwards for SVD.
+
+The output of the code is:
+
+#+RESULTS:
+#+begin_example
+   cat dog apple lion nyc love                                             text
+0              1        1                                 NYC is the Big Apple.
+1              1        1                        NYC is known as the Big Apple.
+2                       1    1                                      I love NYC!
+3              1        1           I wore a hat to the Big Apple party in NYC.
+4              1        1                       Come to NYC. See the Big Apple!
+5              1                             Manhattan is called the Big Apple.
+6    1                                  New York is a big city for a small cat.
+7    1              1           The lion, a big cat, is the king of the jungle.
+8    1                       1                               I love my pet cat.
+9                       1    1                      I love New York City (NYC).
+10   1   1                                              Your dog chased my cat.
+
+       0  1  2  3  4  5  6  7  8  9  10
+cat    0  0  0  0  0  0  1  1  1  0   1
+dog    0  0  0  0  0  0  0  0  0  0   1
+apple  1  1  0  1  1  1  0  0  0  0   0
+lion   0  0  0  0  0  0  0  1  0  0   0
+nyc    1  1  1  1  1  0  0  0  0  1   0
+love   0  0  1  0  0  0  0  0  1  1   0
+#+end_example
+
+We now get ready to apply SVD. The result can be summarized as:
+
+#+BEGIN_SRC 
+W(m x n) ==> U(m x p) * S(p x p) * V(p x n)^T
+
+m = # terms in the vocabulary
+n = # documents in the corpus
+p = # topics in the corpus
+#+END_SRC
+
+**** U = left singular vectors
+The =U= matrix in the decomposition tells you about "the company a word keeps"
+and as such is /the most important matrix for semantic analysis/. As such,
+=U= is the cross-corelation between words and topics, based on word
+co-occurrence in the same document.
+
+Before truncation, this matrix is square. Here is an example outputting it,
+continuing the code above:
+#+BEGIN_SRC python :tangle code/svd_u_example.py :exports both :results output
+  from nlpia.book.examples.ch04_catdog_lsa_sorted import lsa_models, prettify_tdm
+
+  bow_svd, tfidf_svd = lsa_models()
+  tdm = bow_svd['tdm']
+
+  import numpy as np
+  U, s, Vt = np.linalg.svd(tdm)
+
+  import pandas as pd
+  print(pd.DataFrame(U, index=tdm.index).round(2))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+:           0     1     2     3     4     5
+: cat   -0.04  0.83 -0.38 -0.00  0.11 -0.38
+: dog   -0.00  0.21 -0.18 -0.71 -0.39  0.52
+: apple -0.62 -0.21 -0.51  0.00  0.49  0.27
+: lion  -0.00  0.21 -0.18  0.71 -0.39  0.52
+: nyc   -0.75 -0.00  0.24 -0.00 -0.52 -0.32
+: love  -0.22  0.42  0.69  0.00  0.41  0.37
+
+This matrix contains the topic-vectors as columns. That is, for example,
+column 2 shows how much is the text 2 about cat, dog, apple etc. respectively.
+
+This matrix can be used to convert word-document vectors (e.g. TF-IDF) into
+topic-document vectors by multiplying the =U= matrix by any word-document column
+vector, because each cell of the =U= matrix tells how important each word is
+to each topic.
+
+**** S = singular values
+The =S= matrix (also called "Sigma") contains the topic "singular values"
+in a generally rectangular matrix, which is diagonal. The singular values
+(aka /eigenvalues/) tell how much information is captured by each dimension
+in the semantic vector space.
+
+Since it is a diagonal matrix, numpy saves space by outputting only the 
+nonzero elements of the diagonal. But this can be easily written in full
+matrix form.
+
+Note that =s= has already been defined in the example above (as well
+as =Vt=, which we will cover next), so we just copy the code again, but this
+time print =s=, both in diagonal form and in full matrix form:
+
+#+BEGIN_SRC python :tangle code/svd_s_example.py :exports both :results output
+  from nlpia.book.examples.ch04_catdog_lsa_sorted import lsa_models, prettify_tdm
+
+  bow_svd, tfidf_svd = lsa_models()
+  tdm = bow_svd['tdm']
+
+  import numpy as np
+  U, s, Vt = np.linalg.svd(tdm)
+
+  import pandas as pd
+  print("> Diagonal form of S matrix:")
+  print(s.round(1))
+
+  S_full = np.zeros((len(U), len(Vt)))
+  pd.np.fill_diagonal(S_full, s)
+  print("> Full form of S matrix:")
+  print(pd.DataFrame(S_full).round(1))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+> Diagonal form of S matrix:
+[3.1 2.2 1.8 1.  0.8 0.5]
+> Full form of S matrix:
+     0    1    2    3    4    5    6    7    8    9   10
+0  3.1  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0
+1  0.0  2.2  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0
+2  0.0  0.0  1.8  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0
+3  0.0  0.0  0.0  1.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0
+4  0.0  0.0  0.0  0.0  0.8  0.0  0.0  0.0  0.0  0.0  0.0
+5  0.0  0.0  0.0  0.0  0.0  0.5  0.0  0.0  0.0  0.0  0.0
+#+end_example
+
+**** V^T = right singular vectors
+This matrix gives the shared meanings between the documents, because
+it measures how often documents use the same topics in the new semantic
+model of documents.
+
+Again, this matrix was defined as =Vt= in the listing above, so we just
+copy it and print the relevant term.
+
+#+BEGIN_SRC python :tangle code/svd_vt_example.py :exports both :results output
+  from nlpia.book.examples.ch04_catdog_lsa_sorted import lsa_models, prettify_tdm
+
+  bow_svd, tfidf_svd = lsa_models()
+  tdm = bow_svd['tdm']
+
+  import numpy as np
+  U, s, Vt = np.linalg.svd(tdm)
+
+  import pandas as pd
+  print(pd.DataFrame(Vt).round(2))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+       0     1     2     3     4     5     6     7     8     9    10
+0  -0.44 -0.44 -0.31 -0.44 -0.44 -0.20 -0.01 -0.01 -0.08 -0.31 -0.01
+1  -0.09 -0.09  0.19 -0.09 -0.09 -0.09  0.37  0.47  0.56  0.19  0.47
+2  -0.16 -0.16  0.52 -0.16 -0.16 -0.29 -0.22 -0.32  0.17  0.52 -0.32
+3   0.00  0.00 -0.00  0.00  0.00  0.00 -0.00  0.71 -0.00 -0.00 -0.71
+4  -0.04 -0.04 -0.14 -0.04 -0.04  0.58  0.13 -0.33  0.62 -0.14 -0.33
+5  -0.09 -0.09  0.10 -0.09 -0.09  0.51 -0.73  0.27 -0.01  0.10  0.27
+6  -0.57  0.21  0.11  0.33 -0.31  0.34  0.34  0.00 -0.34  0.23  0.00
+7  -0.32  0.47  0.25 -0.63  0.41  0.07  0.07 -0.00 -0.07 -0.18  0.00
+8  -0.50  0.29 -0.20  0.41  0.16 -0.37 -0.37  0.00  0.37 -0.17  0.00
+9  -0.15 -0.15 -0.59 -0.15  0.42  0.04  0.04  0.00 -0.04  0.63 -0.00
+10 -0.26 -0.62  0.33  0.24  0.54  0.09  0.09  0.00 -0.09 -0.23 -0.00
+#+end_example
+
+**** Truncating the Topics
+At this point, the topic model has as many topics as words, which is
+inconvenient. We can either simply disregard columns on the right hand
+side of the =U= matrix or use a more sophisticated method, called
+[[https://en.wikipedia.org/wiki/Principal_component_analysis][Principal Component Analysis]] (PCA), which is like a generalization of
+a linear fit. This is readily implemented in SciKit, so we will be
+showing that. Details on how it works can be checked in the Wikipedia
+link above.
+
+**** Example: SVD and PCA on Spam SMS
+#+BEGIN_SRC python :tangle code/svd_pca_spam_example.py :exports both :results output
+  import pandas as pd
+  from nlpia.data.loaders import get_data
+
+  pd.options.display.width = 120          # better printing of DataFrame
+  sms = get_data('sms-spam')
+
+  # add '!' to spam messages for easy spotting
+  index = ['sms{}{}'.format(i, '!'*j)
+		   for (i, j) in zip(range(len(sms)), sms.spam)]
+  print("> Some messages:")
+  print(sms.head(6))
+
+  # calculate TF-IDF vectors for each message
+  from sklearn.feature_extraction.text import TfidfVectorizer
+  from nltk.tokenize.casual import casual_tokenize
+
+  tfidf = TfidfVectorizer(tokenizer=casual_tokenize)
+  tfidf_docs = tfidf.fit_transform(raw_documents=sms.text).toarray()
+  print("> Vocabulary for messages: " + str(len(tfidf.vocabulary_)))
+
+  tfidf_docs = pd.DataFrame(tfidf_docs)
+  # center the vectorized documents by subtracting the mean
+  tfidf_docs = tfidf_docs - tfidf_docs.mean()
+
+  print("> The array is now " + str(tfidf_docs.shape))
+  print("> There are " + str(sms.spam.sum()) + " messages marked as spam")
+
+  # let's now use PCA
+  from sklearn.decomposition import PCA
+
+  pca = PCA(n_components=16)
+  pca = pca.fit(tfidf_docs)
+  pca_topic_vectors = pca.transform(tfidf_docs)
+  columns = ['topic{}'.format(i) for i in range(pca.n_components)]
+  pca_topic_vectors = pd.DataFrame(pca_topic_vectors, \
+								   columns=columns, index=index)
+  print("> PCA topic matrix (first 6):")
+  print(pca_topic_vectors.round(3).head(6))
+
+  # sort the vocabulary by term count
+  column_nums, terms = zip(*sorted(zip(tfidf.vocabulary_.values(),
+									   tfidf.vocabulary_.keys())))
+
+  # now show the terms contained
+  weights = pd.DataFrame(pca.components_, columns=terms,
+						 index = ['topic{}'.format(i) for i in range(16)])
+  pd.options.display.max_columns = 8
+  print(weights.head(4).round(3))
+
+  # some are uninteresting, so let's focus on some terms
+  pd.options.display.max_columns = 12
+  deals = weights['! ;) :) half off free crazy deal \
+  only $ 80 %'.split()].round(3) * 100
+
+  print(deals)
+
+  # let's see how many topics are about these "deals"
+  print(deals.T.sum())
+
+  # now use truncated SVD to keep just the 16 most interesting topics
+  from sklearn.decomposition import TruncatedSVD
+
+  svd = TruncatedSVD(n_components=16, n_iter=100)
+  svd_topic_vectors = svd.fit_transform(tfidf_docs.values)
+  svd_topic_vectors = pd.DataFrame(svd_topic_vectors, columns=columns,
+								   index=index)
+  print("> SVD Topic Vectors:")
+  print(svd_topic_vectors.round(3).head(6))
+  # which are the same as PCA, given the n_iter = 100 (large)
+
+  # evaluate performance:
+  # compute the dot product for the first 6 topic vectors
+  # if cosine similarity is large wrt spam messages, it's OK
+  import numpy as np
+  svd_topic_vectors = (svd_topic_vectors.T /
+					   np.linalg.norm(svd_topic_vectors, axis=1)).T
+  print("> Notice cosine similarity wrt spam messages:")
+  print(svd_topic_vectors.iloc[:10].dot(svd_topic_vectors.iloc[:10].T).round(1))
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+> Some messages:
+   spam                                               text
+0     0  Go until jurong point, crazy.. Available only ...
+1     0                      Ok lar... Joking wif u oni...
+2     1  Free entry in 2 a wkly comp to win FA Cup fina...
+3     0  U dun say so early hor... U c already then say...
+4     0  Nah I don't think he goes to usf, he lives aro...
+5     1  FreeMsg Hey there darling it's been 3 week's n...
+> Vocabulary for messages: 9232
+> The array is now (4837, 9232)
+> There are 638 messages marked as spam
+> PCA topic matrix (first 6):
+       topic0  topic1  topic2  topic3  ...  topic12  topic13  topic14  topic15
+sms0    0.201   0.003   0.037   0.011  ...    0.006   -0.041    0.002    0.033
+sms1    0.404  -0.094  -0.077   0.051  ...    0.045   -0.016    0.050   -0.035
+sms2!  -0.030  -0.048   0.090  -0.067  ...    0.031   -0.023   -0.032    0.063
+sms3    0.329  -0.033  -0.035  -0.016  ...    0.074   -0.045    0.027   -0.083
+sms4    0.002   0.031   0.038   0.034  ...    0.027    0.030   -0.077   -0.027
+sms5!  -0.016   0.059   0.014  -0.006  ...   -0.045    0.066   -0.001    0.008
+
+[6 rows x 16 columns]
+            !      "      #   #150  ...      …      ┾    〨ud      鈥
+topic0 -0.071  0.008 -0.001 -0.000  ... -0.002  0.001  0.001  0.001
+topic1  0.063  0.008  0.000 -0.000  ...  0.003  0.001  0.001  0.001
+topic2  0.071  0.027  0.000  0.001  ...  0.002 -0.001 -0.001 -0.001
+topic3 -0.059 -0.032 -0.001 -0.000  ...  0.001  0.001  0.001  0.001
+
+[4 rows x 9232 columns]
+            !   ;)    :)  half  off  free  crazy  deal  only    $   80    %
+topic0   -7.1  0.1  -0.5  -0.0 -0.4  -2.0   -0.0  -0.1  -2.2  0.3 -0.0 -0.0
+topic1    6.3  0.0   7.4   0.1  0.4  -2.3   -0.2  -0.1  -3.8 -0.1 -0.0 -0.2
+topic2    7.1  0.2  -0.1   0.0  0.3   4.4    0.1  -0.1   0.7  0.0  0.0  0.1
+topic3   -5.9 -0.3  -7.0   0.2  0.3  -0.2    0.0   0.1  -2.3  0.1 -0.1 -0.3
+topic4   38.1 -0.1 -12.5  -0.1 -0.2   9.9    0.1  -0.2   3.0  0.3  0.1 -0.1
+topic5  -26.5  0.1  -1.6  -0.3 -0.7  -1.4   -0.6  -0.2  -1.8 -0.9  0.0  0.0
+topic6  -10.9 -0.5  19.8  -0.4 -0.9  -0.5   -0.2  -0.1  -1.4 -0.0 -0.0 -0.1
+topic7   16.2  0.1 -17.8   0.8  0.8  -2.9    0.0   0.1  -1.8 -0.3  0.0 -0.1
+topic8   34.3  0.1   5.2  -0.5 -0.5  -0.1   -0.4  -0.4   3.2 -0.6 -0.0 -0.2
+topic9    7.5 -0.3  16.3   1.4 -0.9   6.1   -0.5  -0.4   3.1 -0.5 -0.0 -0.0
+topic10 -31.9 -0.2 -10.3   0.1  0.1  12.1    0.1   0.0   0.2  0.0 -0.1 -0.2
+topic11  21.6  0.4  30.9   0.5  1.4  -4.6    0.0   0.1   0.2 -0.4 -0.0 -0.3
+topic12 -24.5 -0.2  35.3  -0.2  0.1  -3.9   -0.5   0.1   3.8  0.4 -0.0  0.3
+topic13  12.0 -0.2  31.9  -0.2  0.5   5.8    0.4   0.2  -1.4 -0.4  0.0 -0.3
+topic14  -2.8 -0.2  13.4  -0.3 -0.9   4.9    0.2  -0.1   4.2 -0.2  0.1 -0.4
+topic15  -7.5 -0.4  -1.3   0.7 -1.2   1.3   -0.7   0.6   0.9 -0.4  0.0 -0.1
+topic0    -11.9
+topic1      7.5
+topic2     12.7
+topic3    -15.4
+topic4     38.3
+topic5    -33.9
+topic6      4.8
+topic7     -4.9
+topic8     40.1
+topic9     31.8
+topic10   -30.1
+topic11    49.8
+topic12    10.7
+topic13    48.3
+topic14    17.9
+topic15    -8.1
+dtype: float64
+> SVD Topic Vectors:
+       topic0  topic1  topic2  topic3  topic4  topic5  ...  topic10  topic11  topic12  topic13  topic14  topic15
+sms0    0.201   0.003   0.037   0.011  -0.019  -0.053  ...    0.007   -0.007    0.002   -0.036   -0.014    0.037
+sms1    0.404  -0.094  -0.078   0.051   0.100   0.047  ...   -0.004    0.036    0.043   -0.021    0.051   -0.042
+sms2!  -0.030  -0.048   0.090  -0.067   0.091  -0.043  ...    0.125    0.023    0.026   -0.020   -0.042    0.052
+sms3    0.329  -0.033  -0.035  -0.016   0.052   0.056  ...    0.022    0.023    0.073   -0.046    0.022   -0.070
+sms4    0.002   0.031   0.038   0.034  -0.075  -0.093  ...    0.028   -0.009    0.027    0.034   -0.083   -0.021
+sms5!  -0.016   0.059   0.014  -0.006   0.122  -0.040  ...    0.041    0.055   -0.037    0.075   -0.001    0.020
+
+[6 rows x 16 columns]
+> Notice cosine similarity wrt spam messages:
+       sms0  sms1  sms2!  sms3  sms4  sms5!  sms6  sms7  sms8!  sms9!
+sms0    1.0   0.6   -0.1   0.6  -0.0   -0.3  -0.3  -0.1   -0.3   -0.3
+sms1    0.6   1.0   -0.2   0.8  -0.2    0.0  -0.2  -0.2   -0.1   -0.1
+sms2!  -0.1  -0.2    1.0  -0.2   0.1    0.4   0.0   0.3    0.5    0.4
+sms3    0.6   0.8   -0.2   1.0  -0.2   -0.3  -0.1  -0.3   -0.2   -0.1
+sms4   -0.0  -0.2    0.1  -0.2   1.0    0.2   0.0   0.1   -0.4   -0.2
+sms5!  -0.3   0.0    0.4  -0.3   0.2    1.0  -0.1   0.1    0.3    0.4
+sms6   -0.3  -0.2    0.0  -0.1   0.0   -0.1   1.0   0.1   -0.2   -0.2
+sms7   -0.1  -0.2    0.3  -0.3   0.1    0.1   0.1   1.0    0.1    0.4
+sms8!  -0.3  -0.1    0.5  -0.2  -0.4    0.3  -0.2   0.1    1.0    0.3
+sms9!  -0.3  -0.1    0.4  -0.1  -0.2    0.4  -0.2   0.4    0.3    1.0
+#+end_example
+** Latent Dirichlet Allocation (LDiA)
+LDiA assumes each document is a mixture (i.e. linear combination) of some
+arbitrary number of topics that are selected when training the model.
+Also, it assumes that each topic is represented by a distribution of words
+(term frequencies). The probability or weight for each of the topics
+within a document, as well as the probability of a word to be assigned to a
+topic is assumed to follow the [[https://en.wikipedia.org/wiki/Dirichlet_distribution][Dirichlet distribution]].
+
+This was started in 2000 by genetics research to help "infer population 
+structure" from sequences of genes and later applied to NLP.
+
+The NLP idea is that they imagined there is a machine which has only 2
+choices to start generating the mix of words in a document. Then, the
+document generator chose the words randomly by rolling 2 dice:
+1. Number of words to generate for the document (using [[https://en.wikipedia.org/wiki/Poisson_distribution][Poisson distribution]]);
+2. Number of topics to mix for the document (using Dirichlet distribution).
+
+The machine iterates over the topics and randomly chooses words that are
+appropriate to the topic until it hits the number of words that it decided
+to contain in step 1.
+
+It follows that what the machine needs is a parameter for the Poisson
+distribution and some more for the Dirichlet distribution. Then, it uses
+a term-topic matrix of the words and topics it likes to use (the vocabulary
+and a mix of topics).
+
+Flipping the problem back, we get what LDiA does: it computes the term-topic
+matrix from a collection of documents and it can estimate the Poisson and
+Dirichlet parameters from that.
+
+For Poisson, this is easy, as the parameter is exactly the mean, in this case,
+of words or n-grams in general for the bag of words for the documents.
+This can be put in general form like so:
+
+#+BEGIN_SRC python
+  total_corpus_len = 0
+  for document_text in sms.text:
+	  total_corpus_len += len(casual_tokenize(document_text))
+  mean_document_len = total_corpus_len / len(sms)
+
+  poisson_parameter = round(mean_document_len, 2)
+#+END_SRC
+
+The topics specification is a bit trickier. Naively, one can analyze
+clusters of words to determine topics.
+
+*** Example: SMS Spam using LDiA
+TO BE CHECKED AND CLEANED UP:
+#+BEGIN_SRC python :tangle code/ldia_sms_spam_example.py :exports both :results output
+  # TO BE CHECKED AND CLEANED UP
+  # take SMS data
+  import numpy as np
+  import pandas as pd
+  from nlpia.data.loaders import get_data
+
+  pd.options.display.width = 120          # better printing of DataFrame
+  sms = get_data('sms-spam')
+
+  # add '!' to spam messages for easy spotting
+  index = ['sms{}{}'.format(i, '!'*j)
+		   for (i, j) in zip(range(len(sms)), sms.spam)]
+  sms.index = index
+
+  ######################################################################
+  from sklearn.feature_extraction.text import CountVectorizer
+  from nltk.tokenize import casual_tokenize
+
+  np.random.seed(42)
+
+  # compute BOW vectors in scikit-learn
+  counter = CountVectorizer(tokenizer=casual_tokenize)
+  bow_docs = pd.DataFrame(counter.fit_transform(raw_documents=sms.text).toarray(),
+						  index=index)
+  column_nums, terms = zip(*sorted(zip(counter.vocabulary_.values(),
+					   counter.vocabulary_.keys())))
+  bow_docs.columns = terms
+
+  # check
+  print(sms.loc['sms0'].text)
+  print("> BOW:")
+  print(bow_docs.loc['sms0'][bow_docs.loc['sms0'] > 0].head())
+
+  # LDiA
+  from sklearn.decomposition import LatentDirichletAllocation as LDiA
+
+  ldia = LDiA(n_components=16, learning_method='batch')
+  ldia = ldia.fit(bow_docs)
+  print("> LDiA size (topics, words): " + str(ldia.components_.shape))
+
+  # let's now use PCA
+  from sklearn.decomposition import PCA
+
+  from sklearn.feature_extraction.text import TfidfVectorizer
+  from nltk.tokenize.casual import casual_tokenize
+
+  tfidf = TfidfVectorizer(tokenizer=casual_tokenize)
+  tfidf_docs = tfidf.fit_transform(raw_documents=sms.text).toarray()
+
+  pca = PCA(n_components=16)
+  pca = pca.fit(tfidf_docs)
+  pca_topic_vectors = pca.transform(tfidf_docs)
+  columns = ['topic{}'.format(i) for i in range(pca.n_components)]
+  pca_topic_vectors = pd.DataFrame(pca_topic_vectors, \
+								   columns=columns, index=index)
+
+  pd.set_option('display.width', 75)
+  components = pd.DataFrame(ldia.components_.T, index=terms, columns=columns)
+  print("> Some terms and topics:")
+  print(components.round(2).head(3))
+
+  print("> Sorted important terms:")
+  print(components.topic3.sort_values(ascending=False)[:10])
+
+  # compute LDiA topic vectors
+  ldia16_topic_vectors = ldia.transform(bow_docs)
+  ldia16_topic_vectors = pd.DataFrame(ldia16_topic_vectors, index=index,\
+									  columns=columns)
+  print("> LDiA topic vectors:")
+  print(ldia16_topic_vectors.round(2).head())
+
+  # LDiA + LDA check for spam analysis
+  # from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+  # X_train, X_test, y_train, y_test = train_test_split(ldia16_topic_vectors,
+  # 							sms.spam, test_size=0.5,
+  # 							random_state=271828)
+  # lda = LDA(n_components=1)
+  # lda = lda.fit(X_train, y_train)
+  # sms['ldia16_spam'] = lda.predict(ldia16_topic_vectors)
+  # print("> LDA + LDiA Spam Accuracy: " +\
+  # 	  str(round(float(lda.score(X_test, y_test)), 2)))
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+Go until jurong point, crazy.. Available only in bugis n great world la e buffet... Cine there got amore wat...
+> BOW:
+,            1
+..           1
+...          2
+amore        1
+available    1
+Name: sms0, dtype: int64
+> LDiA size (topics, words): (16, 9232)
+> Some terms and topics:
+   topic0  topic1  topic2  topic3  ...  topic12  topic13  topic14  topic15
+!  184.03   15.00   72.22  394.95  ...    64.40   297.29    41.16    11.70
+"    0.68    4.22    2.41    0.06  ...     0.07    62.72    12.27     0.06
+#    0.06    0.06    0.06    0.06  ...     1.07     4.05     0.06     0.06
+
+[3 rows x 16 columns]
+> Sorted important terms:
+!       394.952246
+.       218.049724
+to      119.533134
+u       118.857546
+call    111.948541
+£       107.358914
+,        96.954384
+,*        90.314783
+your     90.215961
+is       75.750037
+Name: topic3, dtype: float64
+> LDiA topic vectors:
+       topic0  topic1  topic2  topic3  ...  topic12  topic13  topic14  topic15
+sms0     0.00    0.62    0.00    0.00  ...     0.00     0.00     0.00     0.00
+sms1     0.01    0.01    0.01    0.01  ...     0.01     0.01     0.01     0.01
+sms2!    0.00    0.00    0.00    0.00  ...     0.00     0.00     0.00     0.00
+sms3     0.00    0.00    0.00    0.00  ...     0.00     0.00     0.00     0.00
+sms4     0.39    0.00    0.33    0.00  ...     0.09     0.00     0.00     0.00
+
+[5 rows x 16 columns]
+#+end_example
