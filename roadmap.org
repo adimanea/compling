@@ -1,0 +1,13 @@
+#+TITLE: Roadmap and Ideas
+
+I should be learning and working on:
+
+* TODO Turney, Pantel - From Frequency to Meaning
+* TODO Evert - The Statistics of Word Co-Occurrences
+* TODO POS-taggers e.g. [[https://cis.uni-muenchen.de/~schmid/tools/TreeTagger/][TreeTagger]]
+* TODO PMI (Pointwise Mutual Information)
+* TODO (General) Topic Coherence
+- [[https://datascienceplus.com/evaluation-of-topic-modeling-topic-coherence/][Evaluation of Topic Modeling: Topic Coherence]];
+- [[https://radimrehurek.com/gensim/models/coherencemodel.html][gensim documentation]];
+- [[https://medium.com/@soorajsubrahmannian/extracting-hidden-topics-in-a-corpus-55b2214fc17d][Learn to Find Topics in a Text Corpus]] @ Medium;
+- See [[https://github.com/adimanea/PoetrySemantics][the actual repo]].
