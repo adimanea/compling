@@ -1173,7 +1173,6 @@ The topics specification is a bit trickier. Naively, one can analyze
 clusters of words to determine topics.
 
 *** Example: SMS Spam using LDiA
-TO BE CHECKED AND CLEANED UP:
 #+BEGIN_SRC python :tangle code/ldia_sms_spam_example.py :exports both :results output
   # HACK: ignore FutureWarnings (related to Pandas)
   import warnings
