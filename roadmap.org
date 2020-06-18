@@ -10,4 +10,16 @@ I will be learning and working on:
   + [[https://datascienceplus.com/evaluation-of-topic-modeling-topic-coherence/][Evaluation of Topic Modeling: Topic Coherence]];
   + [[https://radimrehurek.com/gensim/models/coherencemodel.html][gensim documentation]];
   + [[https://medium.com/@soorajsubrahmannian/extracting-hidden-topics-in-a-corpus-55b2214fc17d][Learn to Find Topics in a Text Corpus]] @ Medium;
+  + [[https://towardsdatascience.com/end-to-end-topic-modeling-in-python-latent-dirichlet-allocation-lda-35ce4ed6b3e0][Topic Modelling in Python: LDA]] @ Medium;
+  + [[https://towardsdatascience.com/evaluate-topic-model-in-python-latent-dirichlet-allocation-lda-7d57484bb5d0][Evaluate Topic Models using LDA]] @ Medium;
+  + [[https://www.machinelearningplus.com/nlp/topic-modeling-gensim-python/][Topic Modelling with Gensim]];
+  + [[https://markroxor.github.io/gensim/static/notebooks/topic_coherence_tutorial.html][Demonstration of Topic Coherence with Gensim]];
+  + [[https://www.aclweb.org/anthology/N10-1012.pdf][Automatic Evaluation of Topic Coherence]] (ACL article);
   + See [[https://github.com/adimanea/PoetrySemantics][the actual repo]].
+- [ ] Semantic Analysis
+  + [[http://blog.josephwilk.net/projects/latent-semantic-analysis-in-python.html][Latent Semantic Analysis]] example;
+  + [[https://arxiv.org/pdf/1806.06411.pdf][Measuring Semantic Coherence of a Conversation]] (arxiv article);
+- [ ] Topic Segmentation
+  + [[http://www.eecs.qmul.ac.uk/~mpurver/papers/purver11slu.pdf][Survey]];
+  + [[https://github.com/sedflix/awesome-topic-segmentation][Awesome GitHub list]];
+  + [[https://repository.upenn.edu/cgi/viewcontent.cgi?article=1068&context=ircs_reports][Thesis]];
