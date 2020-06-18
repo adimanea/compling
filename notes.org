@@ -1305,3 +1305,561 @@ sms4     0.39    0.00    0.33    0.00  ...     0.09     0.00     0.00     0.00
 [5 rows x 16 columns]
 > LDA + LDiA Spam Accuracy: 0.94
 #+end_example
+* LDA Using R
+[[http://brooksandrew.github.io/simpleblog/articles/latent-dirichlet-allocation-under-the-hood/][Source]] (Latent Dirichlet Allocation - under the hood)
+
+LDA takes a generative approach for each document =w= in a corpus =D=:
+1. Choose some =N=, distributed as =Poisson(x)=;
+2. Choose some =theta=, distributed as =Dirichlet(alpha)=;
+3. For each of the =N= words =w[n]=:
+   a. choose a topic =z[n]=, distributed as =Multinomial(theta)=;
+   b. choose a word =w[n]= with =P(w[n] | z[n], beta)=, which is a
+   multinomial probability, conditioned on the topic =z[n]=.
+
+The basic goal of the model is to be able to compute:
+- =theta=: the topic-document distribution;
+- =phi=: the word-topic distribution.
+
+Generally, the mathematical problem is very difficult, as it involves
+complicated integrals that can only be approximated numerically, with not much
+efficience. Two common approaches are:
+- *variational inference* (see [[https://www.cs.princeton.edu/courses/archive/fall11/cos597C/lectures/variational-inference-i.pdf][here]] an overview by Blei, [[https://en.wikipedia.org/wiki/Variational_Bayesian_methods][here]] the Wikipedia overview
+  [[https://zhiyzuo.github.io/VI/][here]] a blog post and [[https://ermongroup.github.io/cs228-notes/inference/variational/][here]] another one);
+- *Markov chain Monte Carlo* (see [[https://people.duke.edu/~ccc14/sta-663/MCMC.html][here]] a computational example in Python);
+
+** LDA from Scratch
+Main resource: [[https://www.seas.harvard.edu/courses/cs281/papers/griffiths-steyvers-2004.pdf][Griffiths, Steyvers - Finding Scientific Topics]], 2004.
+
+See also [[https://shuyo.wordpress.com/2011/05/18/latent-dirichlet-allocation-in-python/][this]] Python implementation.
+
+The R implementation follows.
+
+#+BEGIN_SRC R :tangle code/lda_from_scratch_corpus.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## LDA parameters
+  K <- 2          # number of topics
+  alpha <- 1      # hyperparameter; higher => scattered docs
+  eta <- .001     # hyperparameter
+  iterations <- 3 # for collaps Gibbs sampling (see doc)
+
+  print(docs)
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+[[1]]
+[1] "eat"     "turkey"  "on"      "turkey"  "day"     "holiday"
+
+[[2]]
+[1] "i"       "like"    "to"      "eat"     "cake"    "on"      "holiday"
+
+[[3]]
+[1] "turkey"       "trot"         "race"         "on"           "thanksgiving"
+[6] "holiday"     
+
+[[4]]
+[1] "snail"  "race"   "the"    "turtle"
+
+[[5]]
+[1] "time"   "travel" "space"  "race"  
+
+[[6]]
+[1] "movie"        "on"           "thanksgiving"
+
+[[7]]
+[1] "movie"  "at"     "air"    "and"    "space"  "museum" "is"     "cool"  
+[9] "movie" 
+
+[[8]]
+[1] "aspiring" "movie"    "star"    
+
+#+end_example
+
+Continue:
+
+#+BEGIN_SRC R :tangle code/lda_from_scratch_numbers.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## assign word IDs to each unique word
+  vocab <- unique(unlist(docs))
+
+  ## replace words in documents with IDs
+  for (i in 1:length(docs))
+	docs[[i]] <- match(docs[[i]], vocab)
+
+  print(docs)
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+[[1]]
+[1] 1 2 3 2 4 5
+
+[[2]]
+[1] 6 7 8 1 9 3 5
+
+[[3]]
+[1]  2 10 11  3 12  5
+
+[[4]]
+[1] 13 11 14 15
+
+[[5]]
+[1] 16 17 18 11
+
+[[6]]
+[1] 19  3 12
+
+[[7]]
+[1] 19 20 21 22 18 23 24 25 19
+
+[[8]]
+[1] 26 19 27
+
+#+end_example
+
+Now generate some basic count matrices. First, randomly assign topics to
+each word in each document, then create a word-topic matrix:
+
+#+BEGIN_SRC R :tangle code/lda_from_scratch_wordtopic.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## LDA parameters
+  K <- 2          # number of topics
+  alpha <- 1      # hyperparameter; higher => scattered docs
+  eta <- .001     # hyperparameter
+  iterations <- 3 # for collaps Gibbs sampling (see doc)
+
+  ## assign word IDs to each unique word
+  vocab <- unique(unlist(docs))
+
+  ## replace words in documents with IDs
+  for (i in 1:length(docs))
+	docs[[i]] <- match(docs[[i]], vocab)
+
+
+  ## 1. Randomly assign topics to words in each doc.
+  ## 2. Generate word-topic count matrix
+  wt <- matrix(0, K, length(vocab))           # initialize wt matrix
+  ta <- sapply(docs, function(x) rep(0, length(x)))   # initialize topic assignment list
+  for (d in 1:length(docs)) {                 # for each document
+	for (w in 1:length(docs[[d]])) {           # for each token in document d
+	  ta[[d]][w] <- sample(1:K, 1)            # randomly assign topic to token w
+	  ti <- ta[[d]][w]                        # topic index
+	  wi <- docs[[d]][w]                      # word ID for token w
+	  wt[ti,wi] <- wt[ti,wi] + 1              # update word-topic count matrix
+	}
+  }
+
+  print(wt)               # word-topic count matrix
+  print(ta)               # token-topic assignment list
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+#+begin_example
+     [,1] [,2] [,3] [,4] [,5] [,6] [,7] [,8] [,9] [,10] [,11] [,12] [,13] [,14]
+[1,]    2    1    1    0    1    0    1    0    1     0     2     1     1     0
+[2,]    0    2    3    1    2    1    0    1    0     1     1     1     0     1
+     [,15] [,16] [,17] [,18] [,19] [,20] [,21] [,22] [,23] [,24] [,25] [,26]
+[1,]     0     0     0     1     3     1     1     1     1     1     0     1
+[2,]     1     1     1     1     1     0     0     0     0     0     1     0
+     [,27]
+[1,]     1
+[2,]     0
+[[1]]
+[1] 1 1 2 2 2 1
+
+[[2]]
+[1] 2 1 2 1 1 2 2
+
+[[3]]
+[1] 2 2 2 1 1 2
+
+[[4]]
+[1] 1 1 2 2
+
+[[5]]
+[1] 2 2 2 1
+
+[[6]]
+[1] 1 2 2
+
+[[7]]
+[1] 1 1 1 1 1 1 1 2 1
+
+[[8]]
+[1] 1 2 1
+#+end_example
+
+Now generate a document-topic count matrix, where the counts correspond to
+the number of tokens assigned to each topic for each document.
+
+#+BEGIN_SRC R :tangle code/lda_from_scratch_documenttopic.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## LDA parameters
+  K <- 2          # number of topics
+  alpha <- 1      # hyperparameter; higher => scattered docs
+  eta <- .001     # hyperparameter
+  iterations <- 3 # for collaps Gibbs sampling (see doc)
+
+  ## assign word IDs to each unique word
+  vocab <- unique(unlist(docs))
+
+  ## replace words in documents with IDs
+  for (i in 1:length(docs))
+	docs[[i]] <- match(docs[[i]], vocab)
+
+
+  ## 1. Randomly assign topics to words in each doc.
+  ## 2. Generate word-topic count matrix
+  wt <- matrix(0, K, length(vocab))           # initialize wt matrix
+  ta <- sapply(docs, function(x) rep(0, length(x)))   # initialize topic assignment list
+  for (d in 1:length(docs)) {                 # for each document
+	for (w in 1:length(docs[[d]])) {          # for each token in document d
+	  ta[[d]][w] <- sample(1:K, 1)            # randomly assign topic to token w
+	  ti <- ta[[d]][w]                        # topic index
+	  wi <- docs[[d]][w]                      # word ID for token w
+	  wt[ti,wi] <- wt[ti,wi] + 1              # update word-topic count matrix
+	}
+  }
+
+  dt <- matrix(0, length(docs), K)
+  for (d in 1:length(docs)) {                 # for each document d
+	for (t in 1:K) {                          # for each topic t
+	  dt[d,t] <- sum(ta[[d]]==t)             # count tokens in document d assigned to topic t
+	}
+  }
+
+  print(dt)                                   # document-topic count matrix
+#+END_SRC
+
+which gives:
+
+#+RESULTS:
+:      [,1] [,2]
+: [1,]    3    3
+: [2,]    3    4
+: [3,]    4    2
+: [4,]    3    1
+: [5,]    3    1
+: [6,]    3    0
+: [7,]    5    4
+: [8,]    1    2
+
+*Remark:* Reading Griffiths & Streyvers above, =wt= corresponds to their C^{wt} matrix
+and =dt= corresponds to their C^{dt} matrix.
+
+Now we /learn topics/. We iteratively update the random (bad) topic
+assignments which were populated into =ta=, one topic at a time.
+Rather than directly try to estimate the parameters of interest (=phi= and =theta=),
+we can directly estimate =p_z= (see the conditional probability above), the 
+full-conditional distribution for =z= which represents the probability that 
+token =w= belongs to topic =t=. Hence, =(wt[,wid] + eta) / denom_b= is
+the probability of word =w= under topic =t= and
+=(dt[d,] + alpha) / denom_a= is the probability of topic =t= in document =d= 
+(see appropriate R syntax).
+
+In reference to the theory, we will use the following notations:
+
+=p_z= is P(z_i = j | z_{-i}, w_i, d_i), where:
+
+- P(z_i = j) is the probability that token i is assigned to topic j;
+- z_{-i} is the topic assignment of all other topics (/except/ i);
+- w_i is the word index of token i (in =1..length(vocab)=);
+- d_i is the document index of token i (in =1..length(docs)=).
+
+The code is:
+#+BEGIN_SRC R :tangle code/lda_from_scratch_updatetopics.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## LDA parameters
+  K <- 2          # number of topics
+  alpha <- 1      # hyperparameter; higher => scattered docs
+  eta <- .001     # hyperparameter
+  iterations <- 3 # for collaps Gibbs sampling (see doc)
+
+  ## assign word IDs to each unique word
+  vocab <- unique(unlist(docs))
+
+  ## replace words in documents with IDs
+  for (i in 1:length(docs))
+	docs[[i]] <- match(docs[[i]], vocab)
+
+
+  ## 1. Randomly assign topics to words in each doc.
+  ## 2. Generate word-topic count matrix
+  wt <- matrix(0, K, length(vocab))           # initialize wt matrix
+  ta <- sapply(docs, function(x) rep(0, length(x)))   # initialize topic assignment list
+  for (d in 1:length(docs)) {                 # for each document
+	for (w in 1:length(docs[[d]])) {          # for each token in document d
+	  ta[[d]][w] <- sample(1:K, 1)            # randomly assign topic to token w
+	  ti <- ta[[d]][w]                        # topic index
+	  wi <- docs[[d]][w]                      # word ID for token w
+	  wt[ti,wi] <- wt[ti,wi] + 1              # update word-topic count matrix
+	}
+  }
+
+  dt <- matrix(0, length(docs), K)
+  for (d in 1:length(docs)) {                 # for each document d
+	for (t in 1:K) {                          # for each topic t
+	  dt[d,t] <- sum(ta[[d]]==t)              # count tokens in document d assigned to topic t
+	}
+  }
+
+  ######################################################################
+  for (i in 1:iterations) {                   # for each pass through the corpus
+	for (d in 1:length(docs)) {               # for each document
+	  for (w in 1:length(docs[[d]])) {        # for each token
+		t0 <- ta[[d]][w]                      # initial topic assignment to token w
+		wid <- docs[[d]][w]                   # word ID of token w
+		dt[d,t0] <- dt[d,t0] - 1              # don't include token w in the DT-matrix when sampling for w
+		wt[t0,wid] <- wt[t0,wid] - 1          # don't include toekn w in WT-matrix when sampling for w
+
+		## UPDATE TOPIC ASSIGNMENT FOR EACH WORD: COLLAPSED GIBBS SAMPLING MAGIC
+		denom_a <- sum(dt[d,]) + K + alpha    # no. tokens in doc + no topics * alpha
+		denom_b <- rowSums(wt) + length(vocab) * eta # no. tokens for topic + no words in vocab * eta
+		p_z <- (wt[,wid] + eta) / denom_b * (dt[d,] + alpha) / denom_a    # conditional probability
+		t1 <- sample(1:K, 1, prob=p_z/sum(p_z))   # draw topic for each word n from multinomial computed above
+
+		ta[[d]][w] <- t1                      # update topic assignment list with new sampled topic for w
+		dt[d,t1] <- dt[d,t1] + 1              # re-increment DT matrix with new topic assignment for w
+		wt[t1,wid] <- wt[t1,wid]+1            # ------"----- WT -------"----------------"--------------
+
+		# examine when topic assignments change
+		if (t0 != t1)
+		  print(paste0('doc:', d, ' token:', w, ' topic:', t0, '=>', t1))
+	  }
+	}
+  }
+#+END_SRC
+
+This gives:
+
+#+RESULTS:
+#+begin_example
+[1] "doc:1 token:2 topic:1=>2"
+[1] "doc:1 token:5 topic:1=>2"
+[1] "doc:1 token:6 topic:2=>1"
+[1] "doc:2 token:2 topic:2=>1"
+[1] "doc:2 token:5 topic:1=>2"
+[1] "doc:3 token:1 topic:1=>2"
+[1] "doc:3 token:4 topic:2=>1"
+[1] "doc:4 token:3 topic:1=>2"
+[1] "doc:5 token:2 topic:1=>2"
+[1] "doc:7 token:2 topic:1=>2"
+[1] "doc:7 token:7 topic:1=>2"
+[1] "doc:7 token:8 topic:2=>1"
+[1] "doc:2 token:3 topic:1=>2"
+[1] "doc:2 token:6 topic:2=>1"
+[1] "doc:3 token:2 topic:1=>2"
+[1] "doc:3 token:4 topic:1=>2"
+[1] "doc:4 token:3 topic:2=>1"
+[1] "doc:4 token:4 topic:1=>2"
+[1] "doc:5 token:1 topic:2=>1"
+[1] "doc:5 token:2 topic:2=>1"
+[1] "doc:7 token:2 topic:2=>1"
+[1] "doc:7 token:4 topic:1=>2"
+[1] "doc:7 token:7 topic:2=>1"
+[1] "doc:8 token:1 topic:1=>2"
+[1] "doc:8 token:3 topic:1=>2"
+[1] "doc:2 token:2 topic:1=>2"
+[1] "doc:2 token:5 topic:2=>1"
+[1] "doc:4 token:1 topic:1=>2"
+[1] "doc:4 token:3 topic:1=>2"
+[1] "doc:5 token:1 topic:1=>2"
+[1] "doc:5 token:2 topic:1=>2"
+[1] "doc:6 token:2 topic:1=>2"
+[1] "doc:7 token:4 topic:2=>1"
+[1] "doc:7 token:6 topic:1=>2"
+[1] "doc:8 token:1 topic:2=>1"
+#+end_example
+
+This is actually a glimpse into the learning process. Each time a topic was 
+reassigned, we printed this information. Note that we only did 3 =iterations=, 
+so it's likely to still be imprecise. The re-assignments will probably
+stabilize in practice if we perform more iterations.
+
+Now we analyze the topics using =theta=. This parameter normalizes the counts
+in the document-topic count matrix =dt= to compute the probability that a
+document belongs to each topic.
+
+Then, =phi= normalizes the word-topic count matrix =wt= to compute probabilities
+of words given topics.
+
+Technically, =theta= is the [[https://en.wikipedia.org/wiki/Bayes_estimator#Posterior_mean][posterior mean]] of parameter \theta and =phi= is
+the posterior mean of parameter \phi.
+
+#+BEGIN_SRC R :tangle code/lda_from_scratch_finalparams.r :exports both :results output
+  ## Generate a corpus
+  rawdocs <- c('eat turkey on turkey day holiday',
+			   'i like to eat cake on holiday',
+			   'turkey trot race on thanksgiving holiday',
+			   'snail race the turtle',
+			   'time travel space race',
+			   'movie on thanksgiving',
+			   'movie at air and space museum is cool movie',
+			   'aspiring movie star')
+
+  ## Generate list of documents
+  docs <- strsplit(rawdocs, split=' ', perl=T)
+
+  ## LDA parameters
+  K <- 2          # number of topics
+  alpha <- 1      # hyperparameter; higher => scattered docs
+  eta <- .001     # hyperparameter
+  iterations <- 3 # for collaps Gibbs sampling (see doc)
+
+  ## assign word IDs to each unique word
+  vocab <- unique(unlist(docs))
+
+  ## replace words in documents with IDs
+  for (i in 1:length(docs))
+	docs[[i]] <- match(docs[[i]], vocab)
+
+
+  ## 1. Randomly assign topics to words in each doc.
+  ## 2. Generate word-topic count matrix
+  wt <- matrix(0, K, length(vocab))           # initialize wt matrix
+  ta <- sapply(docs, function(x) rep(0, length(x)))   # initialize topic assignment list
+  for (d in 1:length(docs)) {                 # for each document
+	for (w in 1:length(docs[[d]])) {          # for each token in document d
+	  ta[[d]][w] <- sample(1:K, 1)            # randomly assign topic to token w
+	  ti <- ta[[d]][w]                        # topic index
+	  wi <- docs[[d]][w]                      # word ID for token w
+	  wt[ti,wi] <- wt[ti,wi] + 1              # update word-topic count matrix
+	}
+  }
+
+  dt <- matrix(0, length(docs), K)
+  for (d in 1:length(docs)) {                 # for each document d
+	for (t in 1:K) {                          # for each topic t
+	  dt[d,t] <- sum(ta[[d]]==t)              # count tokens in document d assigned to topic t
+	}
+  }
+
+  for (i in 1:iterations) {                   # for each pass through the corpus
+	for (d in 1:length(docs)) {               # for each document
+	  for (w in 1:length(docs[[d]])) {        # for each token
+		t0 <- ta[[d]][w]                      # initial topic assignment to token w
+		wid <- docs[[d]][w]                   # word ID of token w
+		dt[d,t0] <- dt[d,t0] - 1              # don't include token w in the DT-matrix when sampling for w
+		wt[t0,wid] <- wt[t0,wid] - 1          # don't include toekn w in WT-matrix when sampling for w
+
+		## UPDATE TOPIC ASSIGNMENT FOR EACH WORD: COLLAPSED GIBBS SAMPLING MAGIC
+		denom_a <- sum(dt[d,]) + K + alpha    # no. tokens in doc + no topics * alpha
+		denom_b <- rowSums(wt) + length(vocab) * eta # no. tokens for topic + no words in vocab * eta
+		p_z <- (wt[,wid] + eta) / denom_b * (dt[d,] + alpha) / denom_a    # conditional probability
+		t1 <- sample(1:K, 1, prob=p_z/sum(p_z))   # draw topic for each word n from multinomial computed above
+
+		ta[[d]][w] <- t1                      # update topic assignment list with new sampled topic for w
+		dt[d,t1] <- dt[d,t1] + 1              # re-increment DT matrix with new topic assignment for w
+		wt[t1,wid] <- wt[t1,wid]+1            # ------"----- WT -------"----------------"--------------
+	  }
+	}
+  }
+
+  ######################################################################
+
+  ## topic probabilities per document
+  theta <- (dt + alpha) / rowSums(dt + alpha)
+  print(theta)
+
+  ## topic probabilities per word
+  phi <- (wt + eta) / (rowSums(wt+eta))
+  colnames(phi) <- vocab
+  print(phi)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+          [,1]      [,2]
+[1,] 0.2500000 0.7500000
+[2,] 0.2222222 0.7777778
+[3,] 0.5000000 0.5000000
+[4,] 0.8333333 0.1666667
+[5,] 0.3333333 0.6666667
+[6,] 0.8000000 0.2000000
+[7,] 0.3636364 0.6363636
+[8,] 0.6000000 0.4000000
+              eat       turkey           on          day      holiday
+[1,] 5.547235e-05 5.547235e-05 2.219449e-01 5.547235e-05 5.547235e-05
+[2,] 8.328131e-02 1.249012e-01 4.161984e-05 4.166146e-02 1.249012e-01
+                i         like           to         cake         trot
+[1,] 5.547235e-05 5.547235e-05 5.547235e-05 5.547235e-05 5.547235e-05
+[2,] 4.166146e-02 4.166146e-02 4.166146e-02 4.166146e-02 4.166146e-02
+             race thanksgiving        snail          the       turtle
+[1,] 1.664725e-01 1.110002e-01 5.552782e-02 5.552782e-02 5.552782e-02
+[2,] 4.161984e-05 4.161984e-05 4.161984e-05 4.161984e-05 4.161984e-05
+             time       travel        space        movie           at
+[1,] 5.547235e-05 5.547235e-05 5.547235e-05 2.219449e-01 5.547235e-05
+[2,] 4.166146e-02 4.166146e-02 8.328131e-02 4.161984e-05 4.166146e-02
+              air          and       museum           is         cool
+[1,] 5.547235e-05 5.547235e-05 5.547235e-05 5.552782e-02 5.547235e-05
+[2,] 4.166146e-02 4.166146e-02 4.166146e-02 4.161984e-05 4.166146e-02
+         aspiring         star
+[1,] 5.552782e-02 5.547235e-05
+[2,] 4.161984e-05 4.166146e-02
+#+end_example
