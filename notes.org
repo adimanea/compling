@@ -12,6 +12,7 @@ Thomas Jefferson began building Monticello at the age of 26.
 
 After sorting it alphabetically (numbers before letters, capitals
 before lower case), we get:
+
 #+BEGIN_QUOTE
 26. Jefferson Monticello Thomas age at began building of the
 #+END_QUOTE
@@ -1832,6 +1833,8 @@ the posterior mean of parameter \phi.
   colnames(phi) <- vocab
   print(phi)
 #+END_SRC
+
+which finally gives:
 
 #+RESULTS:
 #+begin_example
